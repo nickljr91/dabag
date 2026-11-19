@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: DaBag
+## Notes: One bag window with per-bag categories, one-click sorting and a bank view you can open anywhere. /dab
+## Author: nickljr91
+## Version: @project-version@
+## IconTexture: Interface\Icons\INV_Misc_Bag_10_Blue
+## SavedVariables: DaBagDB
+
+Core.lua
+Sort.lua
+Window.lua
