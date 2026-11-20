@@ -207,16 +207,33 @@ local function Pass()
 	end
 end
 
+-- An error inside a pass would otherwise kill the timer silently and leave the sorter
+-- believing it is still running, so nothing could ever start it again.
+local function SafePass()
+	local ok, err = pcall(Pass)
+	if not ok then
+		ns.autoSortFailed = true
+		quiet = false
+		Stop("Sorting hit an error and stopped: " .. tostring(err))
+	end
+end
+
 -- auto: started by the addon after a bag change, so it stays silent in chat.
 function ns.StartSort(auto)
-	if ticker then return end
+	if ticker then
+		if not auto then
+			quiet = false -- the player asked, so report how the running sort ends
+			ns.Print("Already sorting...")
+		end
+		return
+	end
 	quiet = auto and true or false
 	if not auto then ns.autoSortFailed = false end
 	if CursorHasItem() then ClearCursor() end
 	startedAt, movedAnything = GetTime(), false
 	joinBefore, joinStrikes = {}, {}
-	ticker = C_Timer.NewTicker(PASS_INTERVAL, Pass)
-	Pass()
+	ticker = C_Timer.NewTicker(PASS_INTERVAL, SafePass)
+	SafePass()
 end
 
 function ns.IsSorting()
