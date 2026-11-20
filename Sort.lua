@@ -115,6 +115,11 @@ function ns.BuildTarget(slots, bags)
 	return target
 end
 
+-- Two stacks of one item sometimes refuse to join (one is soulbound, on a timer or refundable
+-- and the other is not). The game swaps them instead, which would repeat forever, so an item
+-- whose partial stacks look the same after two join attempts is left alone for this sort.
+local joinBefore, joinStrikes = {}, {}
+
 -- Returns a list of {fromIndex, toIndex}; no slot appears twice in one pass.
 function ns.ComputeMoves(slots, target)
 	local moves = {}
@@ -124,12 +129,20 @@ function ns.ComputeMoves(slots, target)
 	for i, s in ipairs(slots) do
 		local item = s.item
 		if item and item.max and item.max > 1 and item.count < item.max then
-			local other = partial[item.id]
-			if other then
-				moves[#moves + 1] = { i, other }
-				partial[item.id] = nil
-			else
-				partial[item.id] = i
+			partial[item.id] = partial[item.id] or {}
+			table.insert(partial[item.id], i)
+		end
+	end
+	for id, list in pairs(partial) do
+		if #list > 1 and (joinStrikes[id] or 0) < 2 then
+			local counts = {}
+			for k, i in ipairs(list) do counts[k] = slots[i].item.count end
+			table.sort(counts)
+			local state = table.concat(counts, ",")
+			joinStrikes[id] = joinBefore[id] == state and (joinStrikes[id] or 0) + 1 or 0
+			joinBefore[id] = state
+			if joinStrikes[id] < 2 then
+				for k = 2, #list, 2 do moves[#moves + 1] = { list[k], list[k - 1] } end
 			end
 		end
 	end
@@ -201,6 +214,7 @@ function ns.StartSort(auto)
 	if not auto then ns.autoSortFailed = false end
 	if CursorHasItem() then ClearCursor() end
 	startedAt, movedAnything = GetTime(), false
+	joinBefore, joinStrikes = {}, {}
 	ticker = C_Timer.NewTicker(PASS_INTERVAL, Pass)
 	Pass()
 end
