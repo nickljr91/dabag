@@ -115,6 +115,11 @@ function ns.BuildTarget(slots, bags)
 	return target
 end
 
+-- Two stacks of one item sometimes refuse to join (one is soulbound, on a timer or refundable
+-- and the other is not). The game swaps them instead, which would repeat forever, so an item
+-- whose partial stacks look the same after two join attempts is left alone for this sort.
+local joinBefore, joinStrikes = {}, {}
+
 -- Returns a list of {fromIndex, toIndex}; no slot appears twice in one pass.
 function ns.ComputeMoves(slots, target)
 	local moves = {}
@@ -124,12 +129,20 @@ function ns.ComputeMoves(slots, target)
 	for i, s in ipairs(slots) do
 		local item = s.item
 		if item and item.max and item.max > 1 and item.count < item.max then
-			local other = partial[item.id]
-			if other then
-				moves[#moves + 1] = { i, other }
-				partial[item.id] = nil
-			else
-				partial[item.id] = i
+			partial[item.id] = partial[item.id] or {}
+			table.insert(partial[item.id], i)
+		end
+	end
+	for id, list in pairs(partial) do
+		if #list > 1 and (joinStrikes[id] or 0) < 2 then
+			local counts = {}
+			for k, i in ipairs(list) do counts[k] = slots[i].item.count end
+			table.sort(counts)
+			local state = table.concat(counts, ",")
+			joinStrikes[id] = joinBefore[id] == state and (joinStrikes[id] or 0) + 1 or 0
+			joinBefore[id] = state
+			if joinStrikes[id] < 2 then
+				for k = 2, #list, 2 do moves[#moves + 1] = { list[k], list[k - 1] } end
 			end
 		end
 	end
@@ -194,15 +207,33 @@ local function Pass()
 	end
 end
 
+-- An error inside a pass would otherwise kill the timer silently and leave the sorter
+-- believing it is still running, so nothing could ever start it again.
+local function SafePass()
+	local ok, err = pcall(Pass)
+	if not ok then
+		ns.autoSortFailed = true
+		quiet = false
+		Stop("Sorting hit an error and stopped: " .. tostring(err))
+	end
+end
+
 -- auto: started by the addon after a bag change, so it stays silent in chat.
 function ns.StartSort(auto)
-	if ticker then return end
+	if ticker then
+		if not auto then
+			quiet = false -- the player asked, so report how the running sort ends
+			ns.Print("Already sorting...")
+		end
+		return
+	end
 	quiet = auto and true or false
 	if not auto then ns.autoSortFailed = false end
 	if CursorHasItem() then ClearCursor() end
 	startedAt, movedAnything = GetTime(), false
-	ticker = C_Timer.NewTicker(PASS_INTERVAL, Pass)
-	Pass()
+	joinBefore, joinStrikes = {}, {}
+	ticker = C_Timer.NewTicker(PASS_INTERVAL, SafePass)
+	SafePass()
 end
 
 function ns.IsSorting()
